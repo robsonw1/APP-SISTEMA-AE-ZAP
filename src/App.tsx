@@ -16,6 +16,7 @@ import FlowBuilder from "./pages/FlowBuilder";
 import LabAI from "./pages/LabAI";
 import Team from "./pages/Team";
 import Tags from "./pages/Tags";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -77,7 +78,7 @@ const App = () => (
               <Route path="/team" element={<Team />} />
               <Route path="/api" element={<PlaceholderPage title="API" />} />
               <Route path="/webhooks" element={<PlaceholderPage title="Webhooks | Triggers" />} />
-              <Route path="/settings" element={<PlaceholderPage title="Configurações" />} />
+              <Route path="/settings" element={<Settings />} />
               <Route path="/integrations" element={<PlaceholderPage title="Integrações" />} />
             </Route>
 

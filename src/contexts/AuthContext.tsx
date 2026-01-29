@@ -28,14 +28,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [member, setMember] = useState<OrganizationMember | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchUserData = async (userId: string) => {
+  const fetchUserData = async (currentUser: User) => {
     try {
       // Fetch profile
-      const { data: profileData } = await supabase
+      let { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("*")
-        .eq("user_id", userId)
+        .eq("user_id", currentUser.id)
         .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      // If profile doesn't exist yet, create it (avoids reliance on auth triggers)
+      if (!profileData) {
+        const fallbackName =
+          (typeof currentUser.user_metadata?.name === "string" ? currentUser.user_metadata.name : "") ||
+          (currentUser.email ? currentUser.email.split("@")[0] : "Usuário");
+
+        const { data: createdProfile, error: createProfileError } = await supabase
+          .from("profiles")
+          .insert({
+            user_id: currentUser.id,
+            name: fallbackName,
+            email: currentUser.email ?? null,
+          })
+          .select("*")
+          .single();
+
+        if (createProfileError) throw createProfileError;
+        profileData = createdProfile;
+      }
 
       setProfile(profileData);
 
@@ -53,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: memberData } = await supabase
           .from("organization_members")
           .select("*")
-          .eq("user_id", userId)
+          .eq("user_id", currentUser.id)
           .eq("organization_id", profileData.organization_id)
           .maybeSingle();
 
@@ -66,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = async () => {
     if (user) {
-      await fetchUserData(user.id);
+      await fetchUserData(user);
     }
   };
 
@@ -80,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (currentSession?.user) {
           // Use setTimeout to avoid potential deadlock
           setTimeout(() => {
-            fetchUserData(currentSession.user.id);
+            fetchUserData(currentSession.user);
           }, 0);
         } else {
           setProfile(null);
@@ -98,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(existingSession?.user ?? null);
       
       if (existingSession?.user) {
-        fetchUserData(existingSession.user.id);
+        fetchUserData(existingSession.user);
       }
       
       setIsLoading(false);

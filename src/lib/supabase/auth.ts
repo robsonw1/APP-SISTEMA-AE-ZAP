@@ -40,12 +40,12 @@ export async function signUp({ email, password, name, organizationName }: SignUp
     refresh_token: session.refresh_token,
   });
 
-  // 4. Now create the organization with the authenticated session
-  const { data: org, error: orgError } = await supabase
+  const organizationId = crypto.randomUUID();
+
+  // 4. Create the organization (avoid SELECT; user isn't a member yet)
+  const { error: orgError } = await supabase
     .from("organizations")
-    .insert({ name: organizationName })
-    .select()
-    .single();
+    .insert({ id: organizationId, name: organizationName });
 
   if (orgError) throw orgError;
 
@@ -53,51 +53,73 @@ export async function signUp({ email, password, name, organizationName }: SignUp
   const { error: memberError } = await supabase
     .from("organization_members")
     .insert({
-      organization_id: org.id,
+      organization_id: organizationId,
       user_id: authData.user.id,
       role: "admin",
     });
 
   if (memberError) throw memberError;
 
-  // 5. Update profile with organization
-  const { error: profileError } = await supabase
+  // 5. Update (or create) profile with organization
+  const { data: updatedProfile, error: profileUpdateError } = await supabase
     .from("profiles")
-    .update({ organization_id: org.id, name })
-    .eq("user_id", authData.user.id);
+    .update({ organization_id: organizationId, name })
+    .eq("user_id", authData.user.id)
+    .select("user_id")
+    .maybeSingle();
 
-  if (profileError) throw profileError;
+  if (profileUpdateError) throw profileUpdateError;
+
+  if (!updatedProfile) {
+    const { error: profileInsertError } = await supabase.from("profiles").insert({
+      user_id: authData.user.id,
+      name,
+      email: email ?? null,
+      organization_id: organizationId,
+    });
+
+    if (profileInsertError) throw profileInsertError;
+  }
 
   // 6. Create default ticket columns
   const defaultColumns = [
-    { name: "Em Atendimento", color: "#EC4899", position: 0, organization_id: org.id },
-    { name: "Proposta Enviada", color: "#06B6D4", position: 1, organization_id: org.id },
-    { name: "Follow Up", color: "#F97316", position: 2, organization_id: org.id },
-    { name: "Implantação", color: "#3B82F6", position: 3, organization_id: org.id },
-    { name: "Concluído", color: "#22C55E", position: 4, organization_id: org.id },
+    { name: "Em Atendimento", color: "#EC4899", position: 0, organization_id: organizationId },
+    { name: "Proposta Enviada", color: "#06B6D4", position: 1, organization_id: organizationId },
+    { name: "Follow Up", color: "#F97316", position: 2, organization_id: organizationId },
+    { name: "Implantação", color: "#3B82F6", position: 3, organization_id: organizationId },
+    { name: "Concluído", color: "#22C55E", position: 4, organization_id: organizationId },
   ];
 
   await supabase.from("ticket_columns").insert(defaultColumns);
 
   // 7. Create default departments
   const defaultDepartments = [
-    { name: "Comercial", color: "#3B82F6", organization_id: org.id },
-    { name: "Suporte", color: "#8B5CF6", organization_id: org.id },
-    { name: "Financeiro", color: "#22C55E", organization_id: org.id },
+    { name: "Comercial", color: "#3B82F6", organization_id: organizationId },
+    { name: "Suporte", color: "#8B5CF6", organization_id: organizationId },
+    { name: "Financeiro", color: "#22C55E", organization_id: organizationId },
   ];
 
   await supabase.from("departments").insert(defaultDepartments);
 
   // 8. Create default tags
   const defaultTags = [
-    { name: "Novo Cliente", color: "#22C55E", organization_id: org.id },
-    { name: "Prioridade Alta", color: "#EF4444", organization_id: org.id },
-    { name: "VIP", color: "#F59E0B", organization_id: org.id },
+    { name: "Novo Cliente", color: "#22C55E", organization_id: organizationId },
+    { name: "Prioridade Alta", color: "#EF4444", organization_id: organizationId },
+    { name: "VIP", color: "#F59E0B", organization_id: organizationId },
   ];
 
   await supabase.from("tags").insert(defaultTags);
 
-  return { user: authData.user, organization: org };
+  // 9. Fetch organization now that membership exists (SELECT policy should pass)
+  const { data: org, error: orgFetchError } = await supabase
+    .from("organizations")
+    .select("*")
+    .eq("id", organizationId)
+    .maybeSingle();
+
+  if (orgFetchError) throw orgFetchError;
+
+  return { user: authData.user, organization: org ?? { id: organizationId, name: organizationName } };
 }
 
 export async function signIn({ email, password }: SignInData) {

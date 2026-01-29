@@ -27,12 +27,12 @@ export default function Settings() {
     
     setIsLoading(true);
     try {
-      // 1. Create the organization
-      const { data: org, error: orgError } = await supabase
+      const organizationId = crypto.randomUUID();
+
+      // 1. Create the organization (avoid SELECT here; user isn't a member yet)
+      const { error: orgError } = await supabase
         .from("organizations")
-        .insert({ name: orgName.trim() })
-        .select()
-        .single();
+        .insert({ id: organizationId, name: orgName.trim() });
 
       if (orgError) throw orgError;
 
@@ -40,44 +40,62 @@ export default function Settings() {
       const { error: memberError } = await supabase
         .from("organization_members")
         .insert({
-          organization_id: org.id,
+          organization_id: organizationId,
           user_id: user.id,
           role: "admin",
         });
 
       if (memberError) throw memberError;
 
-      // 3. Update profile with organization
-      const { error: profileError } = await supabase
+      // 3. Update (or create) profile with organization
+      const { data: updatedProfile, error: profileUpdateError } = await supabase
         .from("profiles")
-        .update({ organization_id: org.id })
-        .eq("user_id", user.id);
+        .update({ organization_id: organizationId })
+        .eq("user_id", user.id)
+        .select("user_id")
+        .maybeSingle();
 
-      if (profileError) throw profileError;
+      if (profileUpdateError) throw profileUpdateError;
+
+      if (!updatedProfile) {
+        const fallbackName =
+          profileName?.trim() ||
+          (typeof user.user_metadata?.name === "string" ? user.user_metadata.name : "") ||
+          (user.email ? user.email.split("@")[0] : "Usuário");
+
+        const { error: profileInsertError } = await supabase.from("profiles").insert({
+          user_id: user.id,
+          name: fallbackName,
+          email: user.email ?? null,
+          organization_id: organizationId,
+        });
+
+        if (profileInsertError) throw profileInsertError;
+      }
 
       // 4. Create default ticket columns
       const defaultColumns = [
-        { name: "Em Atendimento", color: "#EC4899", position: 0, organization_id: org.id },
-        { name: "Proposta Enviada", color: "#06B6D4", position: 1, organization_id: org.id },
-        { name: "Follow Up", color: "#F97316", position: 2, organization_id: org.id },
-        { name: "Implantação", color: "#3B82F6", position: 3, organization_id: org.id },
-        { name: "Concluído", color: "#22C55E", position: 4, organization_id: org.id },
+        { name: "Em Atendimento", color: "#EC4899", position: 0, organization_id: organizationId },
+        { name: "Proposta Enviada", color: "#06B6D4", position: 1, organization_id: organizationId },
+        { name: "Follow Up", color: "#F97316", position: 2, organization_id: organizationId },
+        { name: "Implantação", color: "#3B82F6", position: 3, organization_id: organizationId },
+        { name: "Concluído", color: "#22C55E", position: 4, organization_id: organizationId },
       ];
       await supabase.from("ticket_columns").insert(defaultColumns);
 
       // 5. Create default departments
       const defaultDepartments = [
-        { name: "Comercial", color: "#3B82F6", organization_id: org.id },
-        { name: "Suporte", color: "#8B5CF6", organization_id: org.id },
-        { name: "Financeiro", color: "#22C55E", organization_id: org.id },
+        { name: "Comercial", color: "#3B82F6", organization_id: organizationId },
+        { name: "Suporte", color: "#8B5CF6", organization_id: organizationId },
+        { name: "Financeiro", color: "#22C55E", organization_id: organizationId },
       ];
       await supabase.from("departments").insert(defaultDepartments);
 
       // 6. Create default tags
       const defaultTags = [
-        { name: "Novo Cliente", color: "#22C55E", organization_id: org.id },
-        { name: "Prioridade Alta", color: "#EF4444", organization_id: org.id },
-        { name: "VIP", color: "#F59E0B", organization_id: org.id },
+        { name: "Novo Cliente", color: "#22C55E", organization_id: organizationId },
+        { name: "Prioridade Alta", color: "#EF4444", organization_id: organizationId },
+        { name: "VIP", color: "#F59E0B", organization_id: organizationId },
       ];
       await supabase.from("tags").insert(defaultTags);
 
